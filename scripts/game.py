@@ -27,33 +27,53 @@ class Game:
 
     
     def load_map(self, map_id):
-        """ Load a map """
         json_filename = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "config.json")
         with open(json_filename, "r") as json_file:
             self.map_cfg = json.load(json_file)[f"map_{map_id}"]        
-        
-        self.agents, self.keys, self.boxes = [], [], []
+
+        self.agents, self.keys, self.boxes, self.walls = [], [], [], []
         for i in range(self.nb_agents):
             self.agents.append(Agent(i+1, self.map_cfg[f"agent_{i+1}"]["x"], self.map_cfg[f"agent_{i+1}"]["y"], self.map_cfg[f"agent_{i+1}"]["color"]))
             self.keys.append(Key(self.map_cfg[f"key_{i+1}"]["x"], self.map_cfg[f"key_{i+1}"]["y"]))
             self.boxes.append(Box(self.map_cfg[f"box_{i+1}"]["x"], self.map_cfg[f"box_{i+1}"]["y"]))
             self.agent_paths[i] = [(self.agents[i].x, self.agents[i].y)]
-        
+
+        # Load walls
+        wall_count = 1
+        while f"wall_{wall_count}" in self.map_cfg:
+            wall_cfg = self.map_cfg[f"wall_{wall_count}"]
+            self.walls.append(Wall(wall_cfg["x"], wall_cfg["y"], wall_cfg["rotation"]))
+            wall_count += 1
+
         self.map_w, self.map_h = self.map_cfg["width"], self.map_cfg["height"]
         self.map_real = np.zeros(shape=(self.map_h, self.map_w))
+
         items = []
         items.extend(self.keys)
         items.extend(self.boxes)
-        offsets = [[(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)], [(-2, -2), (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (2, -1), (-2, 0), (2, 0), (-2, 1), ( 2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2)]]
-        for item in items:
-            for i, sub_list in enumerate(offsets):
-                for dx, dy in sub_list:
-                    if dx != 0 or dy != 0:
-                        self.add_val(item.x + dx, item.y + dy, item.neighbour_percent/(i+1))
-                    else:
-                        self.add_val(item.x, item.y, 1)
+        items.extend(self.walls)
 
-    
+        offsets = [[(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0), (-1, 1), (0, 1), (1, 1)], 
+                    [(-2, -2), (-1, -2), (0, -2), (1, -2), (2, -2), (-2, -1), (2, -1), (-2, 0), (2, 0), (-2, 1), (2, 1), (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2)]]
+
+        for item in items:
+            if isinstance(item, Wall):
+                # For walls, set high value on wall cells and lower values around
+                for cell_x, cell_y in item.cells:
+                    self.add_val(cell_x, cell_y, 1.0)
+                    # Add neighbor values around each wall cell
+                    for dx, dy in offsets[0]:
+                        if dx != 0 or dy != 0:
+                            self.add_val(cell_x + dx, cell_y + dy, item.neighbour_percent)
+            else:
+                # Original logic for keys and boxes
+                for i, sub_list in enumerate(offsets):
+                    for dx, dy in sub_list:
+                        if dx != 0 or dy != 0:
+                            self.add_val(item.x + dx, item.y + dy, item.neighbour_percent/(i+1))
+                        else:
+                            self.add_val(item.x, item.y, 1)
+
     def add_val(self, x, y, val):
         """ Add a value if x and y coordinates are in the range [map_w; map_h] """
         if 0 <= x < self.map_w and 0 <= y < self.map_h:
@@ -128,3 +148,32 @@ class Key(Item):
 class Box(Item):
     def __init__(self, x, y):
         Item.__init__(self, x, y, BOX_NEIGHBOUR_PERCENTAGE, "box")
+
+class Wall(Item):
+    def __init__(self, x, y, rotation):
+        Item.__init__(self, x, y, WALL_NEIGHBOUR_PERCENTAGE, "wall")
+        self.rotation = rotation  # 1, 2, 3, or 4
+        self.cells = self.get_wall_cells()
+    
+    def get_wall_cells(self):
+        # L shape: 3 cells in each direction from corner
+        cells = [(self.x, self.y)]  # corner cell
+        
+        if self.rotation == 1:  # right and down
+            for i in range(1, 3):
+                cells.append((self.x + i, self.y))
+                cells.append((self.x, self.y + i))
+        elif self.rotation == 2:  # left and down
+            for i in range(1, 3):
+                cells.append((self.x - i, self.y))
+                cells.append((self.x, self.y + i))
+        elif self.rotation == 3:  # left and up
+            for i in range(1, 3):
+                cells.append((self.x - i, self.y))
+                cells.append((self.x, self.y - i))
+        elif self.rotation == 4:  # right and up
+            for i in range(1, 3):
+                cells.append((self.x + i, self.y))
+                cells.append((self.x, self.y - i))
+        
+        return cells
