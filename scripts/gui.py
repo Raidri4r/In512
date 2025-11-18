@@ -11,7 +11,7 @@ img_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 
 class GUI:
-    def __init__(self, game, fps=10, cell_size=40):
+    def __init__(self, game, fps=10, cell_size=30):
         self.game = game
         self.w, self.h = self.game.map_w, self.game.map_h
         self.fps = fps
@@ -27,6 +27,25 @@ class GUI:
         pygame.display.set_caption("IN512 Project")
         self.create_items()        
         self.running = True
+    
+    def create_obstacles(self,pos,rot):
+        L = []
+        offset_obs = []
+        if rot==0:
+            L.append((pos[0],pos[1]),(pos[0],pos[1]-1),(pos[0],pos[1]-2),(pos[0]+1,pos[1]-2),(pos[0]+2,pos[1]-2)) # L de base en partant du haut
+            offset_obs = [(0,1),(1,1),(1,0),(1,-1),(2,-1),(3,-1),(3,-2),(3,-3),(2,-3),(1,-3),(0,-3),(-1,-3),(-1,-2),(-1,-1),(-1,0),(-1,1)]
+        elif rot==1:
+            L.append((pos[0],pos[1]),(pos[0]+1,pos[1]),(pos[0]+2,pos[1]),(pos[0]+2,pos[1]+1),(pos[0]+2,pos[1]+2)) # L rot 90 sens trigo en partant du même point
+            offset_obs = [(-1,0),(-1,1),(0,1),(1,1),(1,2),(1,3),(2,3),(3,3),(3,2),(3,1),(3,0),(3,-1),(2,-1),(1,-1),(0,-1),(-1,-1)]
+        elif rot==2:
+            L.append((pos[0],pos[1]),(pos[0],pos[1]+1),(pos[0],pos[1]+2),(pos[0]-1,pos[1]+2),(pos[0]-2,pos[1]+2)) # L rot 180 en partant du même point
+            offset_obs=[(0,-1),(1,-1),(1,0),(1,1),(1,2),(1,3),(0,3),(-1,3),(-2,3),(-3,3),(-3,2),(-3,1),(-2,1),(-1,1),(-1,0),(-1,-1)]
+        elif rot==3:
+            L.append((pos[0],pos[1]),(pos[0]-1,pos[1]),(pos[0]-2,pos[1]),(pos[0]-2,pos[1]-1),(pos[0]-2,pos[1]-2)) # L rot 270 en partant du même point
+            offset_obs=[(1,0),(1,1),(0,1),(-1,1),(-2,1),(-3,1),(-3,0),(-3,-1),(-3,-2),(-3,-3),(-2,-3),(-1,-3),(-1,-2),(-1,-1),(0,-1),(1,-1)]
+        else:
+            raise ValueError("Rotation must be in [0,1,2,3]")
+        return L
 
 
     def create_items(self):
@@ -45,6 +64,10 @@ class GUI:
         agent_img = pygame.image.load(img_folder + "/robot.png")
         agent_img = pygame.transform.scale(agent_img, (self.cell_size, self.cell_size))
         self.agents = [agent_img.copy() for _ in range(self.game.nb_agents)]
+        #wall_img
+        wall_img = pygame.image.load(img_folder + "/wall.png")
+        wall_img = pygame.transform.scale(wall_img, (self.cell_size, self.cell_size))
+        self.walls = [wall_img.copy() for _ in range(self.game.nb_agents)]
 
     
     def on_event(self, event):
