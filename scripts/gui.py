@@ -11,7 +11,7 @@ img_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 
 class GUI:
-    def __init__(self, game, fps=10, cell_size=40):
+    def __init__(self, game, fps=10, cell_size=20):
         self.game = game
         self.w, self.h = self.game.map_w, self.game.map_h
         self.fps = fps
@@ -30,6 +30,9 @@ class GUI:
 
 
     def create_items(self):
+        wall_img = pygame.image.load(img_folder + "/wall.png")
+        wall_img = pygame.transform.scale(wall_img, (self.cell_size, self.cell_size))
+        self.wall_img = wall_img  # Store as single image
         #box
         box_img = pygame.image.load(img_folder + "/box.png")
         box_img = pygame.transform.scale(box_img, (self.cell_size, self.cell_size))
@@ -72,7 +75,18 @@ class GUI:
 
     def draw(self):
         self.screen.fill(BG_COLOR)
-        #Grid
+        
+        # Grid
+        for i in range(1, self.h):
+            pygame.draw.line(self.screen, BLACK, (0, i*self.cell_size), (self.w*self.cell_size, i*self.cell_size))
+        for j in range(1, self.w):
+            pygame.draw.line(self.screen, BLACK, (j*self.cell_size, 0), (j*self.cell_size, self.h*self.cell_size))
+
+        # Draw walls
+        for wall in self.game.walls:
+            for cell_x, cell_y in wall.cells:
+                self.screen.blit(self.wall_img, self.wall_img.get_rect(topleft=(cell_x*self.cell_size, cell_y*self.cell_size)))
+            #Grid
         for i in range(1, self.h):
             pygame.draw.line(self.screen, BLACK, (0, i*self.cell_size), (self.w*self.cell_size, i*self.cell_size))
         for j in range(1, self.w):

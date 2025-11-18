@@ -36,7 +36,7 @@ KEY_NEIGHBOUR_PERCENTAGE = 0.5  #value of an adjacent cell to a key
 BOX_NEIGHBOUR_PERCENTAGE = 0.6  #value of an adjacent cell to a key
 KEY_TYPE = 0    #one of the types of item that is output by the 'Get item owner' request
 BOX_TYPE = 1
-
+WALL_NEIGHBOUR_PERCENTAGE = 0.35
 """ GUI """
 BG_COLOR = (255, 255, 255)
 WHITE = (255, 255, 255)
