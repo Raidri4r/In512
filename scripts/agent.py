@@ -40,6 +40,8 @@ class Agent:
         self.nb_agent_connected = 0
         self.x, self.y = env_conf["x"], env_conf["y"]   #initial agent position
         self.w, self.h = env_conf["w"], env_conf["h"]   #environment dimensions
+        cell_val = env_conf["cell_val"] #value of the cell the agent is located in
+        print(cell_val)
         Thread(target=self.msg_cb, daemon=True).start()
         print("hello")
         self.wait_for_connected_agent()
