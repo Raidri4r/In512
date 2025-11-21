@@ -139,7 +139,8 @@ class Agent:
         if self.x == target_x and self.y == target_y:
             return False  
 
-        dx,dy = 0
+        dx = 0
+        dy = 0
 
         if self.x < target_x:
             dx = 1
