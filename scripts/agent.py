@@ -76,7 +76,7 @@ class Agent:
             elif msg['header'] == GET_ITEM_OWNER:
                 if msg['owner']:
                     cmds = {"header": 0}
-                    cmds["Msg type"] = 1 if self.close_to_key else 2
+                    cmds["Msg type"] = 1 if self.state == 'on_key' else 2
                     cmds["position"] = (agent.x, agent.y)
                     cmds["owner"] = msg['owner']
                     agent.network.send(cmds)
@@ -196,10 +196,65 @@ class Agent:
             return
 
         if self.cell_val != 0: # TODO: Move to the object if key or chest, avoid obstacle if wall. Uodate map !
-            if self.state != 'stopped':
-                print(f"Agent {self.agent_id} - Cellule non vide détectée (val={self.cell_val}) à ({self.x}, {self.y})")
-                self.state = 'stopped'
-            return  
+
+            if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
+                self.state = 'close_to_box'
+                already_explored = []
+                #Exploration
+            while self.state == 'close_to_box':
+
+                for movement in [[1,0],[-1,0],[0,-1],[0,1]]:
+                    dx = movement[0]
+                    dy = movement[1]
+
+                    if [self.x + dx, self.y + dy] not in already_explored:
+                        direction = self.get_move_direction(dx, dy)
+                        cmds = {"header": MOVE, "direction": direction}
+                        self.network.send(cmds)
+                        already_explored.append([self.x,self.y])
+                        sleep(1)
+                    
+                        if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE:
+                            self.state = 'very_close_to_box'
+                            break
+                        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
+                            print("EHoh")
+                            break
+                        else:
+                            direction = self.get_move_direction(-dx, -dy)
+                            cmds = {"header": MOVE, "direction": direction}
+                            self.network.send(cmds)
+                            sleep(1)
+            while self.state =='very_close_to_box':
+
+               
+                    for movement in [[1,0],[-1,0],[0,-1],[0,1]]:
+                        dx = movement[0]
+                        dy = movement[1]
+                        if [self.x + dx, self.y + dy] not in already_explored:
+                            direction = self.get_move_direction(dx, dy)
+                            cmds = {"header": MOVE, "direction": direction}
+                            self.network.send(cmds)
+                            already_explored.append([self.x,self.y])
+                            sleep(1)
+                            
+                            if self.cell_val == 1:
+                                self.state = 'on_box'
+                                cmds = {"header": GET_ITEM_OWNER}
+                                self.network.send(cmds)
+                                break
+                            elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE:
+                                print("ahahahhhhhhhhh")
+                                break
+                            else:
+                                direction = self.get_move_direction(-dx, -dy)
+                                cmds = {"header": MOVE, "direction": direction}
+                                self.network.send(cmds)
+                                sleep(1)
+
+
+                
+
 
         if self.state == 'init':
             if self.move_to_initial_position():
@@ -258,7 +313,7 @@ if __name__ == "__main__":
     try:
         while True:
             agent.run()
-            sleep(1)
+            sleep(0.1) 
     except KeyboardInterrupt:
         pass
 # it is always the same location of the agent first location
