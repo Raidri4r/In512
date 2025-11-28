@@ -165,22 +165,22 @@ class Agent:
         """"Return the msg type for the move command"""
 
         if dx == -1 and dy == 0:
-            return 1  # Left
+            return LEFT
         elif dx == 1 and dy == 0:
-            return 2  # Right
+            return RIGHT
         elif dx == 0 and dy == -1:
-            return 3  # Up
+            return UP
         elif dx == 0 and dy == 1:
-            return 4  # Down
+            return DOWN
         elif dx == -1 and dy == -1:
-            return 5  # UL
+            return UP_LEFT
         elif dx == 1 and dy == -1:
-            return 6  # UR
+            return UP_RIGHT
         elif dx == -1 and dy == 1:
-            return 7  # DL
+            return DOWN_LEFT
         elif dx == 1 and dy == 1:
-            return 8  # DR
-        return 0 #Stand
+            return DOWN_RIGHT
+        return STAND
 
     def move_to_initial_position(self):
         """"Move the agent to an appropriate initial position 3 cell away from edge"""
