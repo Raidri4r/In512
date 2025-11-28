@@ -22,7 +22,7 @@ class Agent:
         self.map = None
         self.direction = None 
         self.vertical_direction = 'down'
-        self.min_border_distance = 3 
+        self.min_border_distance = 2
         self.vertical_step = 5 
         self.state = 'init'
         self.vertical_moves_remaining = 0
@@ -99,6 +99,67 @@ class Agent:
                   
 
     #TODO: CREATE YOUR METHODS HERE...
+
+    def explore_towards_target(self, close_threshold, very_close_threshold, target_value,
+                               close_state, very_close_state, on_target_state):
+        """
+        Generic method to explore and navigate towards a target (key or box).
+
+        Args:
+            close_threshold: Value indicating we're close to target (e.g., BOX_NEIGHBOUR_PERCENTAGE/2)
+            very_close_threshold: Value indicating we're very close (e.g., BOX_NEIGHBOUR_PERCENTAGE)
+            target_value: Value indicating we're on the target (1)
+            close_state: State name when close (e.g., 'close_to_box')
+            very_close_state: State name when very close (e.g., 'very_close_to_box')
+            on_target_state: State name when on target (e.g., 'on_box')
+        """
+        already_explored = []
+        movements = [[1, 0], [-1, 0], [0, -1], [0, 1]]
+
+        # Phase 1: Close to target - search for very close signal
+        while self.state == close_state:
+            for movement in movements:
+                dx, dy = movement[0], movement[1]
+
+                if [self.x + dx, self.y + dy] not in already_explored:
+                    direction = self.get_move_direction(dx, dy)
+                    self.network.send({"header": MOVE, "direction": direction})
+                    already_explored.append([self.x, self.y])
+                    sleep(1)
+
+                    if self.cell_val == very_close_threshold:
+                        self.state = very_close_state
+                        break
+                    elif self.cell_val == close_threshold:
+                        break
+                    else:
+                        # Move back if nothing found
+                        direction = self.get_move_direction(-dx, -dy)
+                        self.network.send({"header": MOVE, "direction": direction})
+                        sleep(1)
+
+        # Phase 2: Very close to target - search for exact location
+        while self.state == very_close_state:
+            for movement in movements:
+                dx, dy = movement[0], movement[1]
+
+                if [self.x + dx, self.y + dy] not in already_explored:
+                    direction = self.get_move_direction(dx, dy)
+                    self.network.send({"header": MOVE, "direction": direction})
+                    already_explored.append([self.x, self.y])
+                    sleep(1)
+
+                    if self.cell_val == target_value:
+                        self.state = on_target_state
+                        self.network.send({"header": GET_ITEM_OWNER})
+                        break
+                    elif self.cell_val == very_close_threshold:
+                        break
+                    else:
+                        # Move back if nothing found
+                        direction = self.get_move_direction(-dx, -dy)
+                        self.network.send({"header": MOVE, "direction": direction})
+                        sleep(1)
 
     def get_move_direction(self, dx, dy):
         """"Return the msg type for the move command"""
@@ -195,62 +256,32 @@ class Agent:
         if self.waiting_for_move: #Wait for server response
             return
 
-        if self.cell_val != 0: # TODO: Move to the object if key or chest, avoid obstacle if wall. Uodate map !
-
+        if self.cell_val != 0:
+            # Handle BOX detection
             if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
                 self.state = 'close_to_box'
-                already_explored = []
-                #Exploration
-            while self.state == 'close_to_box':
+                self.explore_towards_target(
+                    close_threshold=BOX_NEIGHBOUR_PERCENTAGE/2,
+                    very_close_threshold=BOX_NEIGHBOUR_PERCENTAGE,
+                    target_value=1,
+                    close_state='close_to_box',
+                    very_close_state='very_close_to_box',
+                    on_target_state='on_box'
+                )
+                return
 
-                for movement in [[1,0],[-1,0],[0,-1],[0,1]]:
-                    dx = movement[0]
-                    dy = movement[1]
-
-                    if [self.x + dx, self.y + dy] not in already_explored:
-                        direction = self.get_move_direction(dx, dy)
-                        cmds = {"header": MOVE, "direction": direction}
-                        self.network.send(cmds)
-                        already_explored.append([self.x,self.y])
-                        sleep(1)
-                    
-                        if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE:
-                            self.state = 'very_close_to_box'
-                            break
-                        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
-                            print("EHoh")
-                            break
-                        else:
-                            direction = self.get_move_direction(-dx, -dy)
-                            cmds = {"header": MOVE, "direction": direction}
-                            self.network.send(cmds)
-                            sleep(1)
-            while self.state =='very_close_to_box':
-
-               
-                    for movement in [[1,0],[-1,0],[0,-1],[0,1]]:
-                        dx = movement[0]
-                        dy = movement[1]
-                        if [self.x + dx, self.y + dy] not in already_explored:
-                            direction = self.get_move_direction(dx, dy)
-                            cmds = {"header": MOVE, "direction": direction}
-                            self.network.send(cmds)
-                            already_explored.append([self.x,self.y])
-                            sleep(1)
-                            
-                            if self.cell_val == 1:
-                                self.state = 'on_box'
-                                cmds = {"header": GET_ITEM_OWNER}
-                                self.network.send(cmds)
-                                break
-                            elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE:
-                                print("ahahahhhhhhhhh")
-                                break
-                            else:
-                                direction = self.get_move_direction(-dx, -dy)
-                                cmds = {"header": MOVE, "direction": direction}
-                                self.network.send(cmds)
-                                sleep(1)
+            # Handle KEY detection
+            elif self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
+                self.state = 'close_to_key'
+                self.explore_towards_target(
+                    close_threshold=KEY_NEIGHBOUR_PERCENTAGE/2,
+                    very_close_threshold=KEY_NEIGHBOUR_PERCENTAGE,
+                    target_value=1,
+                    close_state='close_to_key',
+                    very_close_state='very_close_to_key',
+                    on_target_state='on_key'
+                )
+                return
 
 
                 
@@ -317,6 +348,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
 # it is always the same location of the agent first location
-
-
-
