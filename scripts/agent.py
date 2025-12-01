@@ -74,15 +74,15 @@ class Agent:
                 self.map = np.zeros((msg['h'], msg['w']))
                 
             elif msg['header'] == GET_ITEM_OWNER:
-                if msg['owner']:
-                    cmds = {"header": 0}
-                    cmds["Msg type"] = 1 if self.state == 'on_key' else 2
-                    cmds["position"] = (agent.x, agent.y)
-                    cmds["owner"] = msg['owner']
-                    agent.network.send(cmds)
 
+                cmds = {"header": BROADCAST_MSG}
+                cmds["Msg type"] = 1 if self.state == 'on_key' else 2
+                cmds["position"] = (agent.x, agent.y)
+                cmds["owner"] = msg['owner']
+                agent.network.send(cmds)
 
-            print(f"Received by {self.agent_id}: {msg}")
+            if msg['header'] != MOVE:
+                print(f"Received by {self.agent_id}: {msg}")
       
             
 
@@ -282,10 +282,6 @@ class Agent:
                     on_target_state='on_key'
                 )
                 return
-
-
-                
-
 
         if self.state == 'init':
             if self.move_to_initial_position():
