@@ -27,6 +27,10 @@ class Agent:
         self.all_keys = 0
         self.all_box = 0
         self.current_path = [] # Stocke le chemin calculé par A*
+        
+        # --- FIX: Variable pour mémoriser le type d'objet trouvé ---
+        self.detected_item_type = None 
+        # -----------------------------------------------------------
 
         self.map = None
         self.direction = None 
@@ -267,13 +271,22 @@ class Agent:
 
             elif msg['header'] == GET_DATA:
                 self.map = np.zeros((msg['h'], msg['w']))
+            
             elif msg['header'] == GET_ITEM_OWNER:
-
-                cmds = {"header": 0}
-                cmds["Msg type"] = 1 if self.state == 'on_key' else 2
-                cmds["position"] = (agent.x, agent.y)
+                sleep(0.5)  # Attendre un peu pour s'assurer que le serveur a mis à jour
+                cmds = {"header": BROADCAST_MSG} 
+                
+                # --- FIX: Utiliser la variable mémorisée au lieu de self.state qui change trop vite ---
+                if self.detected_item_type is not None:
+                    cmds["Msg type"] = self.detected_item_type
+                else:
+                    # Fallback au cas où (comportement d'origine)
+                    cmds["Msg type"] = KEY_DISCOVERED if self.state == 'on_key' else BOX_DISCOVERED
+                # --------------------------------------------------------------------------------------
+                
+                cmds["position"] = (self.x, self.y)
                 cmds["owner"] = msg['owner']
-                agent.network.send(cmds)
+                self.network.send(cmds)
 
             # Debug print pour suivre l'état
             print(f"Agent {self.agent_id}: Keys={self.all_keys}/{self.nb_agent_expected}, Boxes={self.all_box}/{self.nb_agent_expected}")
@@ -380,6 +393,11 @@ class Agent:
 
                     if self.cell_val == target_value:
                         self.state = on_target_state
+                        
+                        # --- FIX: Mémoriser le type EXACTEMENT quand on le trouve ---
+                        self.detected_item_type = KEY_DISCOVERED if 'key' in on_target_state else BOX_DISCOVERED
+                        # ------------------------------------------------------------
+                        
                         self.network.send({"header": GET_ITEM_OWNER})
                         msg_type = KEY_DISCOVERED if 'key' in on_target_state else BOX_DISCOVERED
                         fake_msg = {'position': (self.x, self.y), 'Msg type': msg_type}
