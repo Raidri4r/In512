@@ -22,6 +22,7 @@ class Agent:
         self.total_items_found = 0
         self.mission_completed = 0 # Nb of agent that have their key and reached the chest
         self.status = INIT
+        self.object_searched = None
         self.direction = DIAGONAL
         self.start_pos = {}
         self.target = (0,0)
@@ -93,11 +94,13 @@ class Agent:
 
             elif msg['header'] == GET_ITEM_OWNER:
                 if msg['owner']:
-                    cmds = {"header": 0}
-                    cmds["type"] = 1 if self.state == 'on_key' else 2
-                    cmds["position"] = (agent.x, agent.y)
+                    cmds = {"header": BROADCAST_MSG}
+                    cmds["type"] = self.object_searched
+                    cmds["position"] = (self.x, self.y)
                     cmds["owner"] = msg['owner']
-                    agent.network.send(cmds)
+                    self.network.send(cmds)
+                    self.status = EXPLORING
+                    self.object_searched = None
       
     def wait_for_connected_agent(self):
         self.network.send({"header": GET_NB_AGENTS})
@@ -108,67 +111,6 @@ class Agent:
             if self.nb_agent_expected and self.nb_agent_expected == self.nb_agent_connected:
                 print("All agents connected")
                 check_conn_agent = False
-
-    def explore_towards_target(self, close_threshold, very_close_threshold, target_value,
-                               close_state, very_close_state, on_target_state):
-        """
-        Generic method to explore and navigate towards a target (key or box).
-
-        Args:
-            close_threshold: Value indicating we're close to target (e.g., BOX_NEIGHBOUR_PERCENTAGE/2)
-            very_close_threshold: Value indicating we're very close (e.g., BOX_NEIGHBOUR_PERCENTAGE)
-            target_value: Value indicating we're on the target (1)
-            close_state: State name when close (e.g., 'close_to_box')
-            very_close_state: State name when very close (e.g., 'very_close_to_box')
-            on_target_state: State name when on target (e.g., 'on_box')
-        """
-        already_explored = []
-        movements = [[1, 0], [-1, 0], [0, -1], [0, 1]]
-
-        # Phase 1: Close to target - search for very close signal
-        while self.state == close_state:
-            for movement in movements:
-                dx, dy = movement[0], movement[1]
-
-                if [self.x + dx, self.y + dy] not in already_explored:
-                    direction = self.get_move_direction(dx, dy)
-                    self.network.send({"header": MOVE, "direction": direction})
-                    already_explored.append([self.x, self.y])
-                    sleep(1)
-
-                    if self.cell_val == very_close_threshold:
-                        self.state = very_close_state
-                        break
-                    elif self.cell_val == close_threshold:
-                        break
-                    else:
-                        # Move back if nothing found
-                        direction = self.get_move_direction(-dx, -dy)
-                        self.network.send({"header": MOVE, "direction": direction})
-                        sleep(1)
-
-        # Phase 2: Very close to target - search for exact location
-        while self.state == very_close_state:
-            for movement in movements:
-                dx, dy = movement[0], movement[1]
-
-                if [self.x + dx, self.y + dy] not in already_explored:
-                    direction = self.get_move_direction(dx, dy)
-                    self.network.send({"header": MOVE, "direction": direction})
-                    already_explored.append([self.x, self.y])
-                    sleep(1)
-
-                    if self.cell_val == target_value:
-                        self.state = on_target_state
-                        self.network.send({"header": GET_ITEM_OWNER})
-                        break
-                    elif self.cell_val == very_close_threshold:
-                        break
-                    else:
-                        # Move back if nothing found
-                        direction = self.get_move_direction(-dx, -dy)
-                        self.network.send({"header": MOVE, "direction": direction})
-                        sleep(1)
 
     def get_direction(self, dx, dy):
         """"Return the message type for the move command"""
@@ -264,20 +206,22 @@ class Agent:
                 self.start_pos.pop(min_id)
                 
     def find_object(self):
-        if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE or self.cell_val == KEY_NEIGHBOUR_PERCENTAGE:
-            higher_val = 1
-        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
-            higher_val = BOX_NEIGHBOUR_PERCENTAGE
-        elif self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
-            higher_val = KEY_NEIGHBOUR_PERCENTAGE
+        if self.cell_val == 0 or self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
+            higher_val_thres = KEY_NEIGHBOUR_PERCENTAGE/2
+        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE or self.cell_val == KEY_NEIGHBOUR_PERCENTAGE:
+            higher_val_thres = 1
+        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2 or self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
+            higher_val_thres = KEY_NEIGHBOUR_PERCENTAGE
         else:
             return
 
         window = np.full((3, 3), None, dtype=object)
 
-        for i, dx in enumerate([-1, 0, 1]):
-            for j, dy in enumerate([-1, 0, 1]):
-                nx, ny = self.x + dx, self.y + dy
+        for i, dy in enumerate([-1, 0, 1]):
+            for j, dx in enumerate([-1, 0, 1]):
+                ny = self.y + dy
+                nx = self.x + dx
+
                 if 0 <= nx < self.w and 0 <= ny < self.h:
                     window[i, j] = self.map[nx, ny]
 
@@ -285,25 +229,27 @@ class Agent:
 
         # Directions in the 3x3 grid
         directions = {
-            (0,0): (-1,-1), (0,1): (-1,0), (0,2): (-1,1),
-            (1,0): ( 0,-1),               (1,2): ( 0, 1),
-            (2,0): ( 1,-1), (2,1): ( 1,0), (2,2): ( 1,1)
+            (0,0): ( - 1, - 1), (0,1): (0, - 1), (0,2): (1, - 1),
+            (1,0): ( - 1,   0),                  (1,2): (1,   0),
+            (2,0): ( - 1,   1), (0,1): (0,   1), (2,2): (1,   1)
         }
 
         zero_dirs = []
 
         # Identify all surrounding cells that are zero
         for (i,j), (dx,dy) in directions.items():
-            if window[i, j] == higher_val: # If a higher value is in the surroundings, move towards
-                print(f"Agent {self.agent_id} - Moving towards higher value at direction ({dx}, {dy})")
-                self.move(dx, dy)
-                return
-            elif window[i, j] is not None:
-                zero_dirs.append((dx, dy))
+            if window[i, j] is not None:
+                if window[i, j] >= higher_val_thres: # If a higher value is in the surroundings, move towards
+                    print(f"Agent {self.agent_id} - Moving towards higher value at direction ({dx}, {dy})")
+                    self.move(dx, dy)
+                    return
+                else:
+                    zero_dirs.append((dx, dy))
 
-
+        print(f"Agent {self.agent_id} - Zero directions: {zero_dirs}")
         if not zero_dirs:
             # No zeros around: go to a random direction
+            print(f"Agent {self.agent_id} - No zero directions, moving right")
             self.move(1, 0)
             return
 
@@ -311,9 +257,17 @@ class Agent:
         avg_dx = sum(dx for dx, dy in zero_dirs) / len(zero_dirs)
         avg_dy = sum(dy for dx, dy in zero_dirs) / len(zero_dirs)
 
+        # If mean is zero, pick the first non-zero direction
+        if avg_dx == 0 and avg_dy == 0:
+            for (i,j), (dx,dy) in directions.items():
+                if window[i, j] is None:
+                    print(f"Agent {self.agent_id} - Moving towards first non-zero direction ({dx}, {dy})")
+                    self.move(dx, dy)
+                    return
+
         # Move to the opposite direction
         print(f"Agent {self.agent_id} - No higher value found, moving away from average zero direction ({avg_dx}, {avg_dy})")
-        self.move(-int(avg_dx), -int(avg_dy))
+        self.move(-np.sign(avg_dx), -np.sign(avg_dy))
 
 
     def run(self):
@@ -326,10 +280,17 @@ class Agent:
                 self.target = self.divide_map()
                 print(f"Agent {self.agent_id} - Target position: {self.target}")
                 self.status = TOSTART
+                self.direction = LEFT
             return
         
-        if self.cell_val == 1:
-            print(f"Agent {self.agent_id} - On object in cell value {self.cell_val}")
+        if self.cell_val == OBJECT_FOUND:
+            print(f"Agent {self.agent_id} - Found object {self.cell_val}")      
+            self.network.send({"header": GET_ITEM_OWNER})
+            return
+        
+        elif self.status == FIND_OBJECT:
+            print(f"Agent {self.agent_id} - Looking for object")
+            self.find_object()
             return
         
         elif self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
@@ -337,22 +298,28 @@ class Agent:
             self.status = AVOID_WALL
             return
         
-        if self.cell_val != 0:
-            print(f"Agent {self.agent_id} - Found object in cell value {self.cell_val}")
+
+        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
+            print(f"Agent {self.agent_id} - Found box neighbour")
             self.status = FIND_OBJECT
-            self.find_object()
+            self.object_searched = BOX_DISCOVERED
+            return
+        
+        elif self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
+            print(f"Agent {self.agent_id} - Found key neighbour")
+            self.status = FIND_OBJECT
+            self.object_searched = KEY_DISCOVERED
+            return
 
         # if self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
         #     self.status = AVOID_WALL
 
-
-        if self.status == TOSTART:
+        elif self.status == TOSTART:
             if self.move_towards(self.target[0], self.target[1]):
                 self.status = EXPLORING
-                self.direction = LEFT
             return
         
-        if self.status == EXPLORING:
+        elif self.status == EXPLORING:
             print(f"Agent {self.agent_id} - Exploring towards {self.target} in direction {self.direction}")
             if self.move_towards(self.target[0], self.target[1]):
 
