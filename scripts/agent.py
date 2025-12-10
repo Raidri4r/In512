@@ -42,15 +42,19 @@ class Agent:
         env_conf = self.network.receive()
         self.nb_agent_expected = None
         self.nb_agent_connected = 0
+
         self.x, self.y = env_conf["x"], env_conf["y"]   #initial agent position
         self.w, self.h = env_conf["w"], env_conf["h"]   #environment dimensions
-        self.map = np.zeros((self.w, self.h))
         self.cell_val = env_conf["cell_val"] #value of the cell the agent is located in
+        self.map = np.empty((self.w, self.h), dtype=object)
+        self.map[:] = None
+
         Thread(target=self.msg_cb, daemon=True).start()
         self.wait_for_connected_agent()
-        self.start_pos[self.agent_id] = (self.x, self.y)
 
-        
+        self.start_pos[self.agent_id] = (self.x, self.y)
+        self.map[self.x, self.y] = self.cell_val
+   
     def msg_cb(self): 
         """ Method used to handle incoming messages """
         while self.running:
@@ -95,8 +99,6 @@ class Agent:
                     cmds["owner"] = msg['owner']
                     agent.network.send(cmds)
       
-            
-
     def wait_for_connected_agent(self):
         self.network.send({"header": GET_NB_AGENTS})
         check_conn_agent = True
@@ -106,10 +108,6 @@ class Agent:
             if self.nb_agent_expected and self.nb_agent_expected == self.nb_agent_connected:
                 print("All agents connected")
                 check_conn_agent = False
-
-                  
-
-    #TODO: CREATE YOUR METHODS HERE...
 
     def explore_towards_target(self, close_threshold, very_close_threshold, target_value,
                                close_state, very_close_state, on_target_state):
@@ -173,7 +171,7 @@ class Agent:
                         sleep(1)
 
     def get_direction(self, dx, dy):
-        """"Return the msg type for the move command"""
+        """"Return the message type for the move command"""
 
         if dx == -1 and dy == 0:
             return LEFT
@@ -201,8 +199,7 @@ class Agent:
         self.waiting_for_move = True
 
     def move_towards(self, tx: int, ty: int) -> bool:
-        """"Move the agent towards its target.
-        Return True if the target is reached"""
+        """"Move the agent towards its target. Return True if the target is reached"""
 
         dx = tx - self.x
         dy = ty - self.y
@@ -266,9 +263,60 @@ class Agent:
             else:
                 self.start_pos.pop(min_id)
                 
-        
-    def run(self):
+    def find_object(self):
+        if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE or self.cell_val == KEY_NEIGHBOUR_PERCENTAGE:
+            higher_val = 1
+        elif self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
+            higher_val = BOX_NEIGHBOUR_PERCENTAGE
+        elif self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
+            higher_val = KEY_NEIGHBOUR_PERCENTAGE
+        else:
+            return
 
+        window = np.full((3, 3), None, dtype=object)
+
+        for i, dx in enumerate([-1, 0, 1]):
+            for j, dy in enumerate([-1, 0, 1]):
+                nx, ny = self.x + dx, self.y + dy
+                if 0 <= nx < self.w and 0 <= ny < self.h:
+                    window[i, j] = self.map[nx, ny]
+
+        print(f"Agent {self.agent_id} - Perception window:\n{window}")
+
+        # Directions in the 3x3 grid
+        directions = {
+            (0,0): (-1,-1), (0,1): (-1,0), (0,2): (-1,1),
+            (1,0): ( 0,-1),               (1,2): ( 0, 1),
+            (2,0): ( 1,-1), (2,1): ( 1,0), (2,2): ( 1,1)
+        }
+
+        zero_dirs = []
+
+        # Identify all surrounding cells that are zero
+        for (i,j), (dx,dy) in directions.items():
+            if window[i, j] == higher_val: # If a higher value is in the surroundings, move towards
+                print(f"Agent {self.agent_id} - Moving towards higher value at direction ({dx}, {dy})")
+                self.move(dx, dy)
+                return
+            elif window[i, j] is not None:
+                zero_dirs.append((dx, dy))
+
+
+        if not zero_dirs:
+            # No zeros around: go to a random direction
+            self.move(1, 0)
+            return
+
+        # Compute the average of zero directions
+        avg_dx = sum(dx for dx, dy in zero_dirs) / len(zero_dirs)
+        avg_dy = sum(dy for dx, dy in zero_dirs) / len(zero_dirs)
+
+        # Move to the opposite direction
+        print(f"Agent {self.agent_id} - No higher value found, moving away from average zero direction ({avg_dx}, {avg_dy})")
+        self.move(-int(avg_dx), -int(avg_dy))
+
+
+    def run(self):
         if self.waiting_for_move: 
             return # Wait for server response
         
@@ -280,11 +328,19 @@ class Agent:
                 self.status = TOSTART
             return
         
-        # if self.cell_val == KEY_NEIGHBOUR_PERCENTAGE/2:
-        #     self.status = FIND_OBJECT
-
-        # if self.cell_val == BOX_NEIGHBOUR_PERCENTAGE/2:
-        #     self.status = FIND_OBJECT
+        if self.cell_val == 1:
+            print(f"Agent {self.agent_id} - On object in cell value {self.cell_val}")
+            return
+        
+        elif self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
+            print(f"Agent {self.agent_id} - Near wall in cell value {self.cell_val}")
+            self.status = AVOID_WALL
+            return
+        
+        if self.cell_val != 0:
+            print(f"Agent {self.agent_id} - Found object in cell value {self.cell_val}")
+            self.status = FIND_OBJECT
+            self.find_object()
 
         # if self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
         #     self.status = AVOID_WALL
@@ -305,10 +361,10 @@ class Agent:
                     self.next_target = None
 
                 elif self.direction == DOWN_LEFT:
-                    vertical_move = min(9, (self.h - 2) - self.y)
-                    horizontal_move = 9 - vertical_move
+                    vertical_move = min(self.step, (self.h - 2) - self.y)
+                    horizontal_move = self.step - vertical_move
 
-                    if  0 < vertical_move < 9:
+                    if  0 < vertical_move < self.step:
                         self.target = (self.x, self.y + vertical_move)
                         self.next_target = (self.x + horizontal_move, self.y + vertical_move)
                     else:
@@ -322,10 +378,10 @@ class Agent:
                     self.direction = UP_RIGHT
 
                 elif self.direction == UP_RIGHT:
-                    horizontal_move = min(9, (self.w - 2) - self.x)
-                    vertical_move = 9 - horizontal_move
+                    horizontal_move = min(self.step, (self.w - 2) - self.x)
+                    vertical_move = self.step - horizontal_move
 
-                    if 0 < horizontal_move < 9:
+                    if 0 < horizontal_move < self.step:
                         self.target = (self.x + horizontal_move, self.y)
                         self.next_target = (self.x + horizontal_move, self.y + vertical_move)
                     else:
