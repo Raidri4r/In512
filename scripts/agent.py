@@ -48,6 +48,7 @@ class Agent:
         self.w, self.h = env_conf["w"], env_conf["h"]   #environment dimensions
         self.cell_val = env_conf["cell_val"] #value of the cell the agent is located in
         self.map = np.empty((self.w, self.h), dtype=object)
+        self.object_map = np.zeros((self.w, self.h))
         self.map[:] = None
 
         Thread(target=self.msg_cb, daemon=True).start()
@@ -74,6 +75,7 @@ class Agent:
                 self.nb_agent_connected = msg["nb_connected_agents"]
 
             elif msg["header"] == BROADCAST_MSG:
+                print(msg)
                 if msg['owner'] == self.agent_id:
                     if msg['type'] == KEY_DISCOVERED:
                         self.my_key = msg['position']
@@ -82,8 +84,12 @@ class Agent:
                     elif msg['type'] == BOX_DISCOVERED:
                         self.my_chest = msg['position']
                         print(f"Chest of agent {self.agent_id} was found in {msg['position']}")
+                
+                if msg['type'] == KEY_DISCOVERED or msg['type'] == BOX_DISCOVERED:
+                    self.total_items_found +=1
+                    self.update_object_map(msg['position'][0], msg['position'][1], msg['type'])
 
-                elif msg['type'] == 3:
+                elif msg['type'] == COMPLETED:
                     self.mission_completed +=1
 
                 elif msg['type'] == START_POSITION:
@@ -98,6 +104,7 @@ class Agent:
                     cmds["type"] = self.object_searched
                     cmds["position"] = (self.x, self.y)
                     cmds["owner"] = msg['owner']
+                    print(cmds)
                     self.network.send(cmds)
                     self.status = EXPLORING
                     self.object_searched = None
@@ -225,8 +232,6 @@ class Agent:
                 if 0 <= nx < self.w and 0 <= ny < self.h:
                     window[i, j] = self.map[nx, ny]
 
-        print(f"Agent {self.agent_id} - Perception window:\n{window}")
-
         # Directions in the 3x3 grid
         directions = {
             (0,0): ( - 1, - 1), (0,1): (0, - 1), (0,2): (1, - 1),
@@ -240,16 +245,13 @@ class Agent:
         for (i,j), (dx,dy) in directions.items():
             if window[i, j] is not None:
                 if window[i, j] >= higher_val_thres: # If a higher value is in the surroundings, move towards
-                    print(f"Agent {self.agent_id} - Moving towards higher value at direction ({dx}, {dy})")
                     self.move(dx, dy)
                     return
                 else:
                     zero_dirs.append((dx, dy))
 
-        print(f"Agent {self.agent_id} - Zero directions: {zero_dirs}")
         if not zero_dirs:
             # No zeros around: go to a random direction
-            print(f"Agent {self.agent_id} - No zero directions, moving right")
             self.move(1, 0)
             return
 
@@ -261,14 +263,31 @@ class Agent:
         if avg_dx == 0 and avg_dy == 0:
             for (i,j), (dx,dy) in directions.items():
                 if window[i, j] is None:
-                    print(f"Agent {self.agent_id} - Moving towards first non-zero direction ({dx}, {dy})")
                     self.move(dx, dy)
                     return
 
         # Move to the opposite direction
-        print(f"Agent {self.agent_id} - No higher value found, moving away from average zero direction ({avg_dx}, {avg_dy})")
         self.move(-np.sign(avg_dx), -np.sign(avg_dy))
 
+    def update_object_map(self, x, y, obj_type):
+        # Clip to object grid boundaries
+        gx_min = max(x - 2, 0)
+        gx_max = min(x + 3, self.w)
+        gy_min = max(y - 2, 0)
+        gy_max = min(y + 3, self.h)
+
+        # Align object grid accordingly
+        px_min = gx_min - (x - 2)
+        px_max = 5 - ((x + 2) - gx_max)
+        py_min = gy_min - (y - 2)
+        py_max = 5 - ((y + 2) - gy_max)
+
+        # Assign the overlapping portion
+        if obj_type == KEY_DISCOVERED:
+            grid = KEY
+        elif obj_type == BOX_DISCOVERED:
+            grid = BOX
+        self.object_map[gx_min:gx_max, gy_min:gy_max] = grid[px_min:px_max, py_min:py_max]
 
     def run(self):
         if self.waiting_for_move: 
