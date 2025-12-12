@@ -190,7 +190,6 @@ class Agent:
             self.waiting_for_move = True
 
     # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
     def display_map(self):
         """ 
         Affiche la carte locale de l'agent avec OpenCV.
@@ -276,16 +275,31 @@ class Agent:
                 sleep(0.5)  # Attendre un peu pour s'assurer que le serveur a mis à jour
                 cmds = {"header": BROADCAST_MSG} 
                 
-                # --- FIX: Utiliser la variable mémorisée au lieu de self.state qui change trop vite ---
+                # Détermination du type de message
+                msg_type = None
                 if self.detected_item_type is not None:
-                    cmds["Msg type"] = self.detected_item_type
+                    msg_type = self.detected_item_type
                 else:
-                    # Fallback au cas où (comportement d'origine)
-                    cmds["Msg type"] = KEY_DISCOVERED if self.state == 'on_key' else BOX_DISCOVERED
-                # --------------------------------------------------------------------------------------
+                    # Fallback au cas où
+                    msg_type = KEY_DISCOVERED if self.state == 'on_key' else BOX_DISCOVERED
                 
+                cmds["Msg type"] = msg_type
                 cmds["position"] = (self.x, self.y)
                 cmds["owner"] = msg['owner']
+                
+                # --- CORRECTION DEBUT : Mise à jour locale des compteurs ---
+                # L'agent doit prendre en compte sa propre découverte immédiatement
+                owner_id = msg['owner']
+                if msg_type == KEY_DISCOVERED:
+                    self.found_keys_owners.add(owner_id)
+                elif msg_type == BOX_DISCOVERED:
+                    self.found_boxes_owners.add(owner_id)
+                
+                self.all_keys = len(self.found_keys_owners)
+                self.all_box = len(self.found_boxes_owners)
+                print(f"DEBUG LOCAL: J'ai trouvé l'objet de {owner_id}. Total Clés: {self.all_keys}, Total Box: {self.all_box}")
+                # --- CORRECTION FIN ---
+
                 self.network.send(cmds)
 
             # Debug print pour suivre l'état
