@@ -29,6 +29,7 @@ DOWN_RIGHT = 8
 KEY_DISCOVERED = 1  #inform other agents that you discovered a key
 BOX_DISCOVERED = 2
 COMPLETED = 3   #inform other agents that you discovered your key and you reached your own box
+WALL_DISCOVERED = 4  #inform other agents that you discovered a wall
 
 """ GAME """
 GAME_ID = -1    #id of the game when it sends a message to an agent
