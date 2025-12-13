@@ -29,7 +29,7 @@ class Agent:
         self.all_keys = {}
         self.all_boxes = {}
         self.has_collected_my_key = False
-        self.mission_completed = 0
+        self.current_path = None  # BFS path to target
 
         # Wall tracking
         self.known_walls = set()
@@ -89,7 +89,6 @@ class Agent:
                         self.my_chest = pos
 
                 elif msg['Msg type'] == COMPLETED:
-                    self.mission_completed += 1
                     print(f"[Agent {self.agent_id}] Agent {owner} completed mission!")
 
                 elif msg['Msg type'] == WALL_DISCOVERED:
@@ -108,7 +107,6 @@ class Agent:
                     if owner == self.agent_id:
                         self.my_key = pos
                         self.has_collected_my_key = True
-                        print(f"[Agent {self.agent_id}] MY KEY COLLECTED!")
                 else:
                     if owner not in self.all_boxes:
                         self.all_boxes[owner] = pos
@@ -229,35 +227,51 @@ class Agent:
             wait_time += 0.05
         return not self.waiting_for_move
 
+    def find_path_bfs(self, target_pos):
+        """Find path to target using BFS. Returns list of positions or None."""
+        if not target_pos:
+            return None
+
+        start = (self.x, self.y)
+        if start == target_pos:
+            return []
+
+        from collections import deque
+        queue = deque([(start, [start])])
+        visited = {start}
+
+        all_dirs = [(1,0), (-1,0), (0,1), (0,-1), (1,1), (1,-1), (-1,1), (-1,-1)]
+
+        while queue:
+            (cx, cy), path = queue.popleft()
+
+            for dx, dy in all_dirs:
+                nx, ny = cx + dx, cy + dy
+
+                if (nx, ny) == target_pos:
+                    return path + [(nx, ny)]
+
+                if (nx, ny) not in visited and 0 <= nx < self.w and 0 <= ny < self.h:
+                    if not self.is_wall(nx, ny):
+                        visited.add((nx, ny))
+                        queue.append(((nx, ny), path + [(nx, ny)]))
+
+        return None  # No path found
+
     def move_towards_target(self, target_pos):
-        """Move one step towards target while avoiding walls."""
+        """Move one step towards target using BFS pathfinding."""
         if not target_pos or self.is_at_position(target_pos):
             return False
 
-        target_x, target_y = target_pos
-        dx = 1 if self.x < target_x else (-1 if self.x > target_x else 0)
-        dy = 1 if self.y < target_y else (-1 if self.y > target_y else 0)
+        if not self.current_path or self.current_path[-1] != target_pos:
+            self.current_path = self.find_path_bfs(target_pos)
 
-        moves_to_try = []
-        if dx != 0 and dy != 0:
-            moves_to_try.append((dx, dy))
-        if dx != 0:
-            moves_to_try.append((dx, 0))
-        if dy != 0:
-            moves_to_try.append((0, dy))
-        if dy != 0:
-            moves_to_try.extend([(1, dy), (-1, dy)])
-        if dx != 0:
-            moves_to_try.extend([(dx, 1), (dx, -1)])
+        if not self.current_path:
+            return False
 
-        for try_dx, try_dy in moves_to_try:
-            next_x, next_y = self.x + try_dx, self.y + try_dy
-            if 0 <= next_x < self.w and 0 <= next_y < self.h and not self.is_wall(next_x, next_y):
-                self.send_move(try_dx, try_dy)
-                return True
-
-        print(f"[Agent {self.agent_id}] Blocked, no path to {target_pos}")
-        return False
+        next_pos = self.current_path.pop(0)
+        self.send_move(next_pos[0] - self.x, next_pos[1] - self.y)
+        return True
 
     def move_to_initial_position(self):
         """Move agent to safe starting position away from borders."""
@@ -312,7 +326,6 @@ class Agent:
             self.bypass_mode = True
             self.bypass_original_direction = self.direction
             self.bypass_steps = 0
-            print(f"[Agent {self.agent_id}] Wall detected, starting bypass")
 
         self.send_move(-dx, -dy)
 
@@ -363,15 +376,13 @@ class Agent:
                 break
 
     def run(self):
-        """Main agent loop - called repeatedly."""
+        """Main agent loop."""
         if self.waiting_for_move:
             return
 
-        # Wall detection
         if self.cell_val == WALL_NEIGHBOUR_PERCENTAGE:
             if self.map[self.y, self.x] == -1:
                 self.map[self.y, self.x] = WALL_NEIGHBOUR_PERCENTAGE
-
             if self.state in ['going_to_my_key', 'going_to_my_box', 'exploration_ended']:
                 for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                     next_x, next_y = self.x + dx, self.y + dy
@@ -382,13 +393,10 @@ class Agent:
                 self.handle_wall_detection()
             return
 
-        # Final phase: all items found
         if self.all_items_found():
             if self.state not in ['exploration_ended', 'going_to_my_key', 'going_to_my_box', 'completed']:
                 self.state = 'exploration_ended'
-                print(f"[Agent {self.agent_id}] EXPLORATION COMPLETE!")
-                print(f"  Keys: {self.all_keys}")
-                print(f"  Boxes: {self.all_boxes}")
+                print(f"[Agent {self.agent_id}] EXPLORATION COMPLETE - Going to collect key and box")
                 return
 
             if not self.has_collected_my_key:
@@ -446,13 +454,11 @@ class Agent:
             print(f"[Agent {self.agent_id}] Starting exploration at ({self.x}, {self.y})")
             return
 
-        # Bypass mode (wall circumvention)
         if self.bypass_mode:
             dx = 1 if self.bypass_original_direction == 'right' else -1
             next_x = self.x + dx
 
             if not self.is_wall(next_x, self.y) and 0 < next_x < self.w - 1:
-                print(f"[Agent {self.agent_id}] Bypass complete, resuming horizontal")
                 self.bypass_mode = False
                 self.direction = self.bypass_original_direction
                 self.state = 'horizontal'
