@@ -9,6 +9,7 @@ from my_constants import *
 
 from threading import Thread
 import numpy as np
+import cv2
 from time import sleep
 
 DIRECTION = DOWN_RIGHT
@@ -106,6 +107,7 @@ class Agent:
                     cmds["owner"] = msg['owner']
                     print(cmds)
                     self.network.send(cmds)
+                    self.update_object_map(msg['position'][0], msg['position'][1], msg['type'])
                     self.status = EXPLORING
                     self.object_searched = None
       
@@ -164,12 +166,6 @@ class Agent:
 
         return False
 
-        """"Chekc if agent is close to border to change direction"""
-        if self.vertical_direction == 'down':
-            return self.y >= self.h - 1 - self.min_border_distance
-        else:
-            return self.y <= self.min_border_distance
-
     def divide_map(self):
         """ Divide the map into nb_agent_expected regions and return the target position and direction for the agent """
         match self.nb_agent_expected:
@@ -193,7 +189,6 @@ class Agent:
                 else:
                     d = int(np.sqrt(((self.h - self.w) * self.w + self.w**2)/2))
                     start = [(2, 2), (self.h - d, 2), (2, self.w -3), (self.h -3, self.w - d)]
-
 
             case _:
                 pass
@@ -289,7 +284,19 @@ class Agent:
             grid = BOX
         self.object_map[gx_min:gx_max, gy_min:gy_max] = grid[px_min:px_max, py_min:py_max]
 
+    def display_object_map(self):
+        """ Display the object map using OpenCV """
+        scale = 50  # Scale factor for better visibility
+        img = (self.object_map.T * 255).astype(np.uint8)
+
+        # Scale by a factor of 20 (nearest-neighbor to keep blocky structure)
+        img_large = cv2.resize(img, None, fx=20, fy=20, interpolation=cv2.INTER_NEAREST)
+
+        cv2.imshow("Map", img_large)
+        cv2.waitKey(1)
+
     def run(self):
+        self.display_object_map()
         if self.waiting_for_move: 
             return # Wait for server response
         
